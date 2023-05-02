@@ -1,0 +1,196 @@
+---
+title: "Shootings in NYC"
+author: "James Boyd"
+date: "2023-05-01"
+output: 
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# NYPD Shooting Incident Data (Historic)
+
+Initially, exploratory data analysis occurred in this report. The summary() print statement was used more than twenty times. I was looking for questions to ask. I was curious as to what information might be derived from this dataset. I'm confident that we haven't gotten to the bottom of these thousands of murder mysteries. Eventually, clear questions came out.
+
+In essence, the defacto question of this report is whether insights can be gained from this data. For the sake of specificity, the questions of interest in this report are:
+
+- Do males or females do most of the shooting?
+- Do males or females most frequently become the victims?
+- Which borough experiences the most shootings?
+- Have shootings gone up, or down, since 2006?
+- Is there a correlation between the time of the shooting and the age of the perpetrator?
+
+
+## Source
+
+Let's import the data. These are the packages that you'll need to generate documents from this markdown. Also, the source, (URL below) is NYC Open Data. We'll use the "NYPD Shooting Incident Data (Historic)" data set. According to the website from which the data is downloaded: "This is a breakdown of every shooting incident that occurred in NYC going back to 2006 through the end of the previous calendar year."
+
+
+```{r importation, message = FALSE}
+library(tidyverse)
+library(lubridate)
+url_nypd <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+shootings <- read_csv(url_nypd)
+```
+
+
+Let's take a peak at the data.
+
+
+```{r summation}
+summary(shootings)
+```
+
+## Summary of Data
+
+It appears that the shooting project data set is a distillation of who shot who, when, where in the city, and some other information, per shooting, such as precinct, jurisdiction code, descriptions of the area, ages of the shooters and those shot, ethnicities, and sexes. The clericality of the following analysis does no justice to the unfathomable horror behind each row of data.
+
+
+Let's clean up our dataset by:
+
+  - converting some categorical variables into factors.
+  - converting some characters strings, of dates, into Date objects.
+  - getting rid of unneeded columns.
+  - adding a year column.
+
+```{r facotrization}
+shootings <- shootings %>% 
+    mutate(BORO              = factor(BORO)) %>%
+    mutate(VIC_SEX           = factor(VIC_SEX)) %>%
+    mutate(VIC_RACE          = factor(VIC_RACE)) %>%
+    mutate(VIC_AGE_GROUP     = factor(VIC_AGE_GROUP)) %>%
+    mutate(PERP_SEX          = factor(PERP_SEX)) %>%
+    mutate(PERP_RACE         = factor(PERP_RACE)) %>%
+    mutate(PERP_AGE_GROUP    = factor(PERP_AGE_GROUP)) %>%
+    mutate(PRECINCT          = factor(PRECINCT)) %>%
+    mutate(JURISDICTION_CODE = factor(JURISDICTION_CODE)) %>%
+    mutate(days              = factor(OCCUR_DATE)) %>%
+    rename(date = 'OCCUR_DATE') %>%
+    mutate(date = as.Date(date, format = "%m/%d/%Y")) %>%
+    select(-c(INCIDENT_KEY, X_COORD_CD, Y_COORD_CD, Latitude, Longitude))
+
+shootings <- shootings %>%
+    mutate(year = format(as.Date(shootings$date, format="%m/%d/%Y"),"%Y"))
+```
+
+Let's confirm that our transformations worked and that no data is missing.
+
+```{r confirmation}
+summary(shootings)
+```
+
+It seems that our transformations worked, and that no data is missing, except for null and NA values, which we'll keep because that information is significant, shining light on the uknowningess and chaos associated with shootings.
+
+### Shootings by Sex
+
+Since 2006, in NYC, which sex:
+
+  - committed the most shootings?
+  - was shot the most?
+
+```{r sexshootation}
+plot <- ggplot(shootings, aes(VIC_SEX, fill = VIC_SEX))
+plot + 
+    geom_bar() + 
+    ggtitle("Shooting Victims per Sex in NYC since 2006") + 
+    xlab("Sex of Victim") + 
+    ylab("Shootings")
+```
+
+
+Males are by far the most shot sex in NYC, being shot almost nine times as often as females. The unknown segment is barely visible. 
+
+```{r sexshootation2}
+plot <- ggplot(shootings, aes(PERP_SEX, fill = PERP_SEX))
+plot + 
+    geom_bar() + 
+    ggtitle("Shooting Perpetrators per Sex in NYC since 2006") + 
+    xlab("Sex of Perpetrator") + 
+    ylab("Shootings")
+```
+
+
+Males appear to account for the vast majority of the shooting perpetrators, as well.
+
+### Shootings by Borough
+
+Since 2006, in NYC, which borough had the most shootings?
+
+
+```{r boroughtion}
+plot <- ggplot(shootings, aes(BORO, fill = BORO)) +
+    geom_bar() + 
+    ggtitle("Shootings per Borough since 2006") + 
+    xlab("Borough") + 
+    ylab("Shootings") +
+    theme(axis.text.x = element_text(angle=45, hjust=1))
+plot
+summary(shootings['BORO'])
+```
+
+
+It appears that Brooklyn has had the most shootings, since 2006, at 10,933 shootings. Staten Island had the least, at 776 shootings.
+
+
+### Shootings on the Rise?
+
+Have shootings in NYC gone up, or down, since 2006? 
+
+```{r timeation}
+perYear <- shootings %>%
+    group_by(year) %>%
+    summarize(Tot = n())
+
+plot <- ggplot(perYear, aes(year, Tot)) +
+    geom_point() + 
+    ggtitle("Shootings in NYC per Year since 2006") + 
+    xlab("Year") + 
+    ylab("Shootings") +
+    theme(axis.text.x = element_text(angle=45, hjust=1))
+plot
+```
+
+
+It appears that shootings were on their way down, since 2006. Then, they spiked back up in 2020. It may have been related to COVID-19. However, 2022 was still fewer than any year between 2006 and 2011. Shootings are on the decline. Hurrah!
+
+## Linear Regression Model
+
+Is there a statistically significant correlation between the age of the perpetrator and the time of the shooting? Let's attempt to answer this question with a linear regression model. Our predictor variable is categorical and our outcome variable is numeric, so a parametric statistical test should give us our p value.
+
+```{r modelation}
+shootings <- shootings %>%
+    mutate(
+        hour = as.numeric(
+            format(
+                as.POSIXct(
+                    OCCUR_TIME, format="%H:%M:%S"
+                ), "%H"
+            )
+        )
+    )
+
+model <- lm(formula = hour ~ PERP_AGE_GROUP, data = shootings)
+summary(model)
+```
+
+
+## Analysis of Model
+
+Our p value of 2.2 * 10^-16 is less than a significance level of 0.05, therefore we reject the null hypothesis that the hour of the shooting is not correlated to the age of the perpetrator. That is, the age group of the perpetrator has a statistically significant correlation to time of the shooting.
+
+## Questions
+
+  Did COVID-19, or the circumstances surround it, cause a spike in shootings in NYC? What have people been doing right, specifically, to press the shooting count down? What was causing the shooting count to go down in 2006-2019? Why do men do so much shooting? Why do they get shot so much? Furthermore, why is there a correlation between the age group of the perpetrator and the hour at which the shooting occurred? Is it possible that 55 year old perpetrators are asleep at 3 A.M.? What would a color-portioning of the bars, to show the age groups of the perpetrators, on a histogram of the hours of the shootings look like? These questions merit further research.
+
+## Conclusion
+  In conclusion, males shoot and get shot more than females. Brooklyn had the most shootings. Shootings have gone down. The age of the perpetrator is correlated to the time of the shooting. In addition to the aforementioned questions that arise from this analysis, there are many more pieces of insight to be gained around this data. There are, in fact, professionals, working this particular subject, around the clock, in NYC. One particular question is what insight can be gained from this data that could reduce, or prevent, one or more shootings? Does lending a generous hand to one's neighbor help in trying times, such as COVID-19? Do men stand to benefit from considering taking a step back from violent situations, if given the chance, when those situations approach? It's a compelling data set. 
+
+
+  Potential biases include those related to the unknowns in regards to the one-to-one mapping of perpetrators to victims. Are the counts actually more? Are they actually less? Is someone trying to inflate or deflate the numbers? Another potential point of bias is the racial labeling in this dataset, in a 23 and me world, in which many people, perhaps all people, are not just exclusively this ethnicity or that ethnicity. One personal bias of mine is that I'm all but in denial that this much violence is occurring in such a small land area. Part of me doesn't want to examine this subject. However, means by which I have addressed this bias are by facing these numbers as more of a scientist than a moralist, who wishes these numbers were lower or zero. Furthermore, an assumption was made in this report that this data was furnished by the police, the NYPD. They are trying to reduce these numbers all the time. This dataset will continue to be studied for decades.
+
+```{r session}
+sessionInfo()
+```
